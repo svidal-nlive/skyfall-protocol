@@ -1,0 +1,311 @@
+/**
+ * Skyfall Protocol - HUD CSS Variables & Styles
+ * Phase 14: Responsive HUD Refactor
+ * Phase 15: Polish & Effects (added accessibility vars)
+ * 
+ * Design System:
+ * - Edge-anchored layout (center sacred for combat)
+ * - Icon-first (minimize text)
+ * - Responsive with viewport units + clamp()
+ * - Unified "helmet display" aesthetic
+ */
+
+:root {
+  /* ============================================
+     ACCESSIBILITY - User preferences
+     ============================================ */
+  --hud-opacity: 1.0;              /* Adjustable via settings (0.3-1.0) */
+  --hud-scale: 1.0;                /* Adjustable via settings (0.8-1.5) */
+  
+  /* ============================================
+     COLOR PALETTE - New sophisticated scheme
+     ============================================ */
+  
+  /* Health/Hull */
+  --hud-health-full: #10b981;      /* Emerald */
+  --hud-health-warning: #f59e0b;   /* Amber */
+  --hud-health-critical: #f43f5e;  /* Rose */
+  
+  /* Weapons */
+  --hud-weapons-ready: #0ea5e9;    /* Sky */
+  --hud-weapons-empty: #64748b;    /* Slate */
+  --hud-weapons-reload: #fbbf24;   /* Yellow */
+  --hud-weapons-firing: #22d3ee;   /* Cyan bright */
+  
+  /* Score/Info */
+  --hud-score-primary: #8b5cf6;    /* Violet */
+  --hud-score-combo: #f97316;      /* Orange */
+  --hud-score-glow: rgba(139, 92, 246, 0.4);
+  
+  /* Radar */
+  --hud-radar-bg: rgba(0, 0, 0, 0.7);
+  --hud-radar-ring: #14b8a6;       /* Teal */
+  --hud-radar-enemy-patrol: #22c55e;   /* Green */
+  --hud-radar-enemy-engage: #ef4444;   /* Red */
+  --hud-radar-enemy-retreat: #eab308;  /* Yellow */
+  --hud-radar-beacon: #06b6d4;         /* Cyan */
+  --hud-radar-player: #ffffff;
+  
+  /* Lock/Targeting */
+  --hud-lock-acquiring: #fbbf24;   /* Amber pulse */
+  --hud-lock-locked: #10b981;      /* Emerald solid */
+  --hud-lock-primary: #f43f5e;     /* Rose */
+  
+  /* General UI */
+  --hud-border-color: #475569;     /* Slate */
+  --hud-border-glow: rgba(71, 85, 105, 0.5);
+  --hud-bg-primary: rgba(0, 0, 0, 0.6);
+  --hud-bg-secondary: rgba(15, 23, 42, 0.8);
+  --hud-text-primary: #e2e8f0;     /* Slate-200 */
+  --hud-text-secondary: #94a3b8;   /* Slate-400 */
+  --hud-text-muted: #64748b;       /* Slate-500 */
+  
+  /* Acts */
+  --hud-act-1: #22d3ee;            /* Cyan */
+  --hud-act-2: #f97316;            /* Orange */
+  --hud-act-3: #f43f5e;            /* Rose */
+  
+  /* ============================================
+     RESPONSIVE SIZING
+     ============================================ */
+  
+  /* Base unit - scales with viewport */
+  --hud-unit: clamp(4px, 0.5vw, 6px);
+  
+  /* Panel sizing */
+  --hud-panel-padding: clamp(8px, 2vw, 16px);
+  --hud-panel-radius: clamp(4px, 1vw, 8px);
+  --hud-panel-border: 1px;
+  
+  /* Element sizing */
+  --hud-health-height: clamp(16px, 3vh, 24px);
+  --hud-health-width: clamp(100px, 20vw, 200px);
+  
+  --hud-radar-size: clamp(60px, 12vw, 120px);
+  --hud-radar-size-minimized: 32px;
+  
+  --hud-score-font: clamp(18px, 4vw, 32px);
+  --hud-score-small: clamp(10px, 2vw, 14px);
+  
+  --hud-icon-size: clamp(16px, 3vw, 24px);
+  --hud-icon-small: clamp(12px, 2vw, 16px);
+  
+  /* Spacing */
+  --hud-gap: clamp(8px, 1.5vw, 16px);
+  --hud-edge-margin: clamp(8px, 2vw, 20px);
+  
+  /* Typography */
+  --hud-font-family: 'Orbitron', 'Rajdhani', 'Segoe UI', system-ui, sans-serif;
+  --hud-font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  
+  --hud-font-xl: clamp(24px, 5vw, 40px);
+  --hud-font-lg: clamp(16px, 3vw, 24px);
+  --hud-font-md: clamp(12px, 2vw, 16px);
+  --hud-font-sm: clamp(10px, 1.5vw, 12px);
+  --hud-font-xs: clamp(8px, 1vw, 10px);
+  
+  /* ============================================
+     Z-INDEX HIERARCHY
+     ============================================ */
+  --z-game: 1;
+  --z-hud-base: 10;
+  --z-hud-indicators: 20;
+  --z-hud-panels: 30;
+  --z-hud-top: 40;
+  --z-hud-alerts: 50;
+  --z-overlay: 100;
+  --z-modal: 200;
+  --z-toast: 300;
+  
+  /* ============================================
+     ANIMATIONS
+     ============================================ */
+  --hud-transition-fast: 150ms ease-out;
+  --hud-transition-normal: 250ms ease-out;
+  --hud-transition-slow: 400ms ease-out;
+  
+  /* Safe area for notched devices */
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+}
+
+/* ============================================
+   BREAKPOINT-SPECIFIC OVERRIDES
+   ============================================ */
+
+/* Portrait Mobile (< 480px) - Combat Mode (minimal) */
+@media (max-width: 479px) {
+  :root {
+    --hud-radar-size: 48px;
+    --hud-health-width: 80px;
+    --hud-panel-padding: 6px;
+    --hud-edge-margin: 8px;
+  }
+}
+
+/* Landscape Mobile (480-768px) - Compact Mode */
+@media (min-width: 480px) and (max-width: 767px) {
+  :root {
+    --hud-radar-size: 70px;
+    --hud-health-width: 120px;
+    --hud-panel-padding: 8px;
+    --hud-edge-margin: 12px;
+  }
+}
+
+/* Tablet (768-1024px) - Standard Mode */
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root {
+    --hud-radar-size: 100px;
+    --hud-health-width: 160px;
+    --hud-panel-padding: 12px;
+    --hud-edge-margin: 16px;
+  }
+}
+
+/* Desktop (> 1024px) - Full Mode */
+@media (min-width: 1024px) {
+  :root {
+    --hud-radar-size: 120px;
+    --hud-health-width: 200px;
+    --hud-panel-padding: 16px;
+    --hud-edge-margin: 20px;
+  }
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+.hud-container {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--z-hud-base);
+  font-family: var(--hud-font-family);
+  padding-top: var(--safe-area-top);
+  padding-bottom: var(--safe-area-bottom);
+  padding-left: var(--safe-area-left);
+  padding-right: var(--safe-area-right);
+  /* Phase 15: Accessibility settings */
+  opacity: var(--hud-opacity, 1.0);
+  transform: scale(var(--hud-scale, 1.0));
+  transform-origin: center center;
+}
+
+.hud-panel {
+  background: var(--hud-bg-primary);
+  border: var(--hud-panel-border) solid var(--hud-border-color);
+  border-radius: var(--hud-panel-radius);
+  padding: var(--hud-panel-padding);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 0 10px var(--hud-border-glow);
+}
+
+.hud-interactive {
+  pointer-events: auto;
+}
+
+/* Corner accent decoration */
+.hud-corner-accent {
+  position: relative;
+}
+
+.hud-corner-accent::before,
+.hud-corner-accent::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-color: var(--hud-border-color);
+}
+
+.hud-corner-accent::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid;
+  border-left: 2px solid;
+}
+
+.hud-corner-accent::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid;
+  border-right: 2px solid;
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
+@keyframes hud-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes hud-glow {
+  0%, 100% { 
+    box-shadow: 0 0 5px currentColor;
+  }
+  50% { 
+    box-shadow: 0 0 15px currentColor, 0 0 25px currentColor;
+  }
+}
+
+@keyframes hud-flash {
+  0% { 
+    background-color: var(--hud-health-critical);
+    opacity: 0.5;
+  }
+  100% { 
+    background-color: transparent;
+    opacity: 0;
+  }
+}
+
+@keyframes hud-scale-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+@keyframes hud-slide-in-bottom {
+  from { 
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to { 
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes hud-slide-in-top {
+  from { 
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to { 
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes hud-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

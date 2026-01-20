@@ -1,0 +1,23 @@
+services:
+  skyfall-protocol:
+    container_name: skyfall-protocol
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.skyfall-protocol.rule=Host(`starfall.vectorhost.net`)"
+      - "traefik.http.routers.skyfall-protocol.entrypoints=websecure"
+      - "traefik.http.routers.skyfall-protocol.tls=true"
+      - "traefik.http.routers.skyfall-protocol.tls.certresolver=vpsresolver"
+      - "traefik.http.routers.skyfall-protocol.priority=600"
+      - "traefik.http.routers.skyfall-protocol.service=skyfall-protocol-svc"
+      - "traefik.http.services.skyfall-protocol-svc.loadbalancer.server.port=80"
+
+networks:
+  proxy:
+    external: true
