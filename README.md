@@ -22,6 +22,8 @@ Voxel Ace: Defender is a fast-paced arcade flight combat game set in **Year 2157
 
 ## 🚀 Quick Start
 
+### Development
+
 ```bash
 # Install dependencies
 npm install
@@ -32,6 +34,28 @@ npm run dev
 # Build for production
 npm run build
 ```
+
+### Docker Deployment
+
+The project includes Docker support with Traefik reverse proxy configuration.
+
+```bash
+# Build and start the container
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the container
+docker-compose down
+```
+
+**Access:** The application will be available at `https://starfall.vectorhost.net` (requires Traefik setup)
+
+**Requirements:**
+- Docker and Docker Compose
+- Traefik reverse proxy with `proxy` network
+- SSL certificate resolver configured (vpsresolver)
 
 ## 🎯 Controls
 
