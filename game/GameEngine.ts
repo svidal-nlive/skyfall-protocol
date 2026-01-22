@@ -19,12 +19,17 @@ import { currencyManager } from './CurrencyManager';
 import { upgradeManager } from './UpgradeManager';
 import { BossController, BossType } from './BossController';
 import { audioManager } from './AudioManager';
+import { storyManager } from './StoryManager';
 // Phase 15: Polish & Effects
 import { ParticleTrailSystem, initParticleTrailSystem, particleTrailSystem } from './ParticleTrailSystem';
 import { cameraEffects, ShakeType } from './CameraEffects';
-import { CloudSystem, initCloudSystem, cloudSystem } from './CloudSystem';
+import { NebulaSystem, initNebulaSystem } from './NebulaSystem';
+import { SpaceSkybox, initSpaceSkybox } from './SpaceSkybox';
+import { MoonMountains, initMoonMountains } from './MoonMountains';
 // Phase 16: Endless Mode
 import { endlessModeManager } from './EndlessModeManager';
+// Game persistence
+import { saveGameState, loadGameState, isLoggedIn } from '../src/services/api';
 
 export enum GameState {
   MENU = 'MENU',
@@ -69,13 +74,18 @@ export class GameEngine {
   
   // Phase 15: Polish & Effects Systems
   private particleTrailSystem: ParticleTrailSystem | null = null;
-  private cloudSystemInstance: CloudSystem | null = null;
+  private nebulaSystemInstance: NebulaSystem | null = null;
+  private spaceSkybox: SpaceSkybox | null = null;
+  private moonMountains: MoonMountains | null = null;
   private timeScale: number = 1.0; // For slow-motion effects
   
   // Effects
   private speedLines: THREE.Group;
   private skyMesh: THREE.Mesh | null = null;
   private activeFog: THREE.Fog | null = null;
+  
+  // Wave progression tracking
+  private nextWaveAfterComplete: Wave | null = null;
 
   // Camera State
   private currentLookAt: THREE.Vector3 = new THREE.Vector3();
@@ -83,12 +93,12 @@ export class GameEngine {
   private baseFov: number = 65;
   private orbitAngle: number = 0;
 
-  // Atmospheric Settings
+  // Atmospheric Settings - Cyberpunk palette with dark ground
   private readonly ATMOSPHERE = {
-    horizon: new THREE.Color(0x0a1628),
-    zenith: new THREE.Color(0x000510),
-    fogNear: 200,
-    fogFar: 3000,
+    horizon: new THREE.Color(0x0a0018),  // Very dark purple-blue for ground transition
+    zenith: new THREE.Color(0x050010),   // Near black with slight purple tint
+    fogNear: 300,
+    fogFar: 6000,  // Increased from 3000 to allow visibility at greater distances
   };
 
   constructor(canvas: HTMLCanvasElement) {
@@ -102,6 +112,11 @@ export class GameEngine {
     });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    
+    // Enable tone mapping for better bloom/glow effects
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     // Initialize Camera
     this.camera = new THREE.PerspectiveCamera(this.baseFov, window.innerWidth / window.innerHeight, 0.1, 15000);
@@ -116,9 +131,9 @@ export class GameEngine {
     this.speedLines = new THREE.Group();
     this.setupSpeedEffect();
 
-    // Setup Infinity Grid
+    // Setup Infinity Grid with moon surface styling
     this.infinityGrid = new InfinityGrid();
-    this.scene.add(this.infinityGrid.mesh);
+    this.scene.add(this.infinityGrid.mesh); // Re-enabled with moon styling
 
     // Setup Player with selected aircraft config
     const selectedAircraft = ProgressManager.getSelectedAircraft();
@@ -153,7 +168,10 @@ export class GameEngine {
     
     // Phase 15: Initialize particle and effects systems
     this.particleTrailSystem = initParticleTrailSystem(this.scene);
-    this.cloudSystemInstance = initCloudSystem(this.scene);
+    this.nebulaSystemInstance = initNebulaSystem(this.scene);
+    this.spaceSkybox = initSpaceSkybox(this.scene);
+    // Mountains disabled for flat grass terrain
+    // this.moonMountains = initMoonMountains(this.scene);
     cameraEffects.setCamera(this.camera);
     
     // Setup engine trail emitter for player jet
@@ -205,6 +223,7 @@ export class GameEngine {
     window.addEventListener('wave-complete', this.handleWaveComplete as EventListener);
     window.addEventListener('upgrade-shop-closed', this.handleShopClosed as EventListener);
     window.addEventListener('briefing-complete', this.handleBriefingComplete as EventListener);
+    window.addEventListener('game-restore', this.handleGameRestore as EventListener);
     
     // Boss event listeners (Phase 12) - Note: boss-hit is handled by BossController directly
     window.addEventListener('spawn-boss', this.handleSpawnBoss as EventListener);
@@ -266,6 +285,93 @@ export class GameEngine {
       detail: { aircraftId } 
     }));
   }
+
+  /**
+   * Restore game from saved state
+   */
+  private handleGameRestore = (e: CustomEvent) => {
+    const save = e.detail;
+    
+    console.log('[GAME ENGINE] Restoring game from save:', save);
+    
+    // Load the save data and restore game state
+    try {
+      // Reset player with selected aircraft
+      this.resetPlayer();
+      
+      // Clear any existing enemies
+      this.enemyManager.clearAllEnemies();
+      
+      // Enable wave mode
+      this.enemyManager.setWaveMode(true);
+      
+      // Clear enemy projectiles
+      this.enemyProjectileManager.clearAll();
+      
+      // Reset currency and upgrades first (before restoring saved values)
+      currencyManager.reset();
+      upgradeManager.reset();
+      
+      // Restore wave number and mode
+      waveManager.reset();
+      waveManager.restoreFromSave(save.wave_number, save.game_mode);
+      
+      // Restore player health
+      if (save.player_health !== undefined) {
+        this.playerHealthManager.setHealth(parseFloat(save.player_health));
+      }
+      
+      // Restore score
+      if (save.current_score) {
+        this.scoreManager.addScore(parseInt(save.current_score));
+      }
+      
+      // Restore scrap currency
+      if (save.scrap_currency) {
+        currencyManager.addScrap(parseInt(save.scrap_currency));
+      }
+      
+      // Restore upgrades
+      if (save.upgrades_state) {
+        const upgrades = typeof save.upgrades_state === 'string' 
+          ? JSON.parse(save.upgrades_state) 
+          : save.upgrades_state;
+        
+        for (const [upgradeId, level] of Object.entries(upgrades)) {
+          // Restore upgrade levels by purchasing them
+          for (let i = 0; i < (level as number); i++) {
+            upgradeManager.purchase(upgradeId);
+          }
+        }
+      }
+      
+      // Apply upgrade modifiers to systems
+      this.applyUpgradeModifiers();
+      
+      // Start the wave manager in continue mode (spawns beacon, no timer)
+      waveManager.continueGame();
+      
+      // Start audio
+      audioManager.playMusic('combat');
+      audioManager.startEngine();
+      
+      // Set game state to playing
+      this.setGameState(GameState.PLAYING);
+      
+      // Show briefing for current wave
+      const briefing = storyManager.getBriefing(save.wave_number);
+      if (briefing) {
+        window.dispatchEvent(new CustomEvent('show-briefing', {
+          detail: { waveNumber: save.wave_number }
+        }));
+      }
+      
+      console.log('[GAME ENGINE] Game restored successfully');
+    } catch (error) {
+      console.error('[GAME ENGINE] Failed to restore game:', error);
+      this.startGame();
+    }
+  };
 
   private handleGameInput = (e: CustomEvent) => {
     const { type, ...data } = e.detail;
@@ -515,53 +621,18 @@ export class GameEngine {
   // ============ Phase 15: Engine Trail Setup ============
   
   private setupPlayerEngineTrails() {
-    if (!this.particleTrailSystem) return;
-    
-    // Left engine exhaust
-    this.particleTrailSystem.addEmitter(
-      'player-engine-left',
-      'engine',
-      () => {
-        // Calculate left engine position relative to jet
-        const offset = new THREE.Vector3(-0.8, -0.2, 2.5).applyQuaternion(this.flightController.quaternion);
-        return this.flightController.position.clone().add(offset);
-      },
-      () => this.flightController.velocity.clone(),
-      () => this.gameState === GameState.PLAYING,
-      0.5
-    );
-    
-    // Right engine exhaust
-    this.particleTrailSystem.addEmitter(
-      'player-engine-right',
-      'engine',
-      () => {
-        const offset = new THREE.Vector3(0.8, -0.2, 2.5).applyQuaternion(this.flightController.quaternion);
-        return this.flightController.position.clone().add(offset);
-      },
-      () => this.flightController.velocity.clone(),
-      () => this.gameState === GameState.PLAYING,
-      0.5
-    );
+    // Engine particle trails disabled - using afterburner glow only
+    // The afterburner glow on the jet model provides sufficient visual feedback
+    return;
   }
   
   /**
    * Update engine trail intensity based on throttle
+   * Note: Engine trails disabled, but keeping method for potential future use
    */
   private updateEngineTrailIntensity() {
-    if (!this.particleTrailSystem) return;
-    
-    const throttle = this.flightController.throttle;
-    const isBoosting = this.flightController.isBoosting();
-    
-    // Base intensity from throttle, boost adds extra
-    let intensity = throttle * 0.8;
-    if (isBoosting) {
-      intensity = 1.5; // Extra particles when boosting
-    }
-    
-    this.particleTrailSystem.setEmitterIntensity('player-engine-left', intensity);
-    this.particleTrailSystem.setEmitterIntensity('player-engine-right', intensity);
+    // Engine particle trails disabled - method kept for future use
+    return;
   }
 
   // ============ Cinematic Handlers (Phase 8C) ============
@@ -625,6 +696,9 @@ export class GameEngine {
     
     console.log(`[GAME ENGINE] Wave ${wave.id} complete!`);
     
+    // Store next wave for use when shop closes
+    this.nextWaveAfterComplete = nextWave;
+    
     // Play wave complete fanfare
     audioManager.play('wave-complete');
     
@@ -653,15 +727,37 @@ export class GameEngine {
       console.log(`[GAME ENGINE] Applied ${healing}% emergency repair`);
     }
     
-    // Get the next wave number from WaveManager
-    const currentWave = waveManager?.getCurrentWave();
-    const nextWaveNumber = currentWave?.id || 1;
-    
-    // Show briefing for next wave before resuming
-    console.log(`[GAME ENGINE] Showing briefing for wave ${nextWaveNumber}`);
-    window.dispatchEvent(new CustomEvent('show-briefing', {
-      detail: { waveNumber: nextWaveNumber }
-    }));
+    // Use the nextWave that was stored when the current wave completed
+    // This ensures we show briefing for the correct next wave
+    if (this.nextWaveAfterComplete) {
+      const nextWaveNumber = this.nextWaveAfterComplete.id;
+      console.log(`[GAME ENGINE] Showing briefing for wave ${nextWaveNumber}`);
+      
+      // Advance to next wave in WaveManager to update currentWaveIndex
+      // This is critical because when the player reaches the beacon and the cinematic completes,
+      // startCurrentWave() will use getCurrentWave() which needs to return the correct wave
+      waveManager.advanceToNextWave();
+      
+      // Save game state after advancing to next wave
+      this.saveLiveGameState();
+      
+      // Show briefing for next wave before resuming
+      window.dispatchEvent(new CustomEvent('show-briefing', {
+        detail: { waveNumber: nextWaveNumber }
+      }));
+    } else {
+      // Fallback if nextWave wasn't stored (shouldn't happen)
+      console.warn('[GAME ENGINE] No nextWave stored, using current wave');
+      const currentWave = waveManager?.getCurrentWave();
+      const waveNumber = currentWave?.id || 1;
+      
+      // Save game state
+      this.saveLiveGameState();
+      
+      window.dispatchEvent(new CustomEvent('show-briefing', {
+        detail: { waveNumber }
+      }));
+    }
   };
 
   private handleBriefingComplete = (e: CustomEvent) => {
@@ -842,6 +938,9 @@ export class GameEngine {
    * Return to hangar (from game over or pause menu)
    */
   public returnToHangar() {
+    // Save game state before clearing
+    this.saveLiveGameState();
+    
     // Clear enemies and projectiles
     this.enemyManager.clearAllEnemies();
     this.enemyProjectileManager.clearAll();
@@ -861,6 +960,62 @@ export class GameEngine {
     
     // Return to menu
     this.setGameState(GameState.MENU);
+  }
+
+  /**
+   * Dev mode: Instantly clear all enemies in current wave and open shop
+   * Used for testing persistence and wave progression
+   * Only works when dev mode is enabled
+   */
+  public clearCurrentWave() {
+    // Check if dev mode is enabled
+    if (!ProgressManager.isDevMode()) {
+      console.warn('[GAME ENGINE] Clear wave blocked - dev mode is OFF');
+      return;
+    }
+    
+    console.log('[GAME ENGINE] Dev mode: Clearing current wave instantly');
+    
+    // Get all targetable enemies
+    const enemies = this.enemyManager.getTargetableEnemies();
+    
+    if (enemies.length === 0) {
+      console.warn('[GAME ENGINE] No active enemies to clear');
+      return;
+    }
+    
+    // Kill each enemy (they will dispatch enemy-destroyed events which trigger point gains)
+    for (const enemy of enemies) {
+      this.enemyManager.damageEnemy(enemy.id, 999999, 'wave-clear-dev');
+    }
+    
+    // Play completion audio
+    audioManager.play('wave-complete');
+    
+    // Small delay to let destruction events process
+    setTimeout(() => {
+      // Get current and next wave info
+      const currentWave = waveManager.getCurrentWave();
+      const nextWave = waveManager.getNextWave();
+      
+      if (!currentWave) {
+        console.warn('[GAME ENGINE] No current wave to clear');
+        return;
+      }
+      
+      console.log(`[GAME ENGINE] Wave ${currentWave.id} cleared by dev mode`);
+      
+      // Award completion bonus
+      currencyManager.onWaveComplete(currentWave.id, currentWave.isBoss);
+      
+      // If there's a next wave, open shop
+      if (nextWave) {
+        this.nextWaveAfterComplete = nextWave;
+        this.openUpgradeShop(nextWave.id);
+      } else {
+        console.log('[GAME ENGINE] No next wave - game complete');
+      }
+    }, 100);
   }
 
   /**
@@ -937,93 +1092,88 @@ export class GameEngine {
     const horizonColor = this.ATMOSPHERE.horizon;
     const zenithColor = this.ATMOSPHERE.zenith;
     
-    this.scene.background = horizonColor;
+    this.scene.background = new THREE.Color(0x6699cc); // Daytime sky blue background
 
-    this.activeFog = new THREE.Fog(horizonColor, this.ATMOSPHERE.fogNear, this.ATMOSPHERE.fogFar);
+    this.activeFog = new THREE.Fog(new THREE.Color(0x88aacc), this.ATMOSPHERE.fogNear, this.ATMOSPHERE.fogFar);
     this.scene.fog = this.activeFog;
+    
+    // Disable moon mountains (removed for flat terrain)
+    // Mountains are not initialized - terrain is flat grass
 
-    // Ambient Light
-    const ambientLight = new THREE.AmbientLight(0x4466aa, 0.4);
+    // Ambient Light - Lower intensity for space environment
+    const ambientLight = new THREE.AmbientLight(0x6644ff, 0.3);
     this.scene.add(ambientLight);
 
-    // Directional Light (Sun-like)
-    const sunLight = new THREE.DirectionalLight(0xaaccff, 1.0);
+    // Directional Light (Sun-like) - Subtle magenta tint
+    const sunLight = new THREE.DirectionalLight(0xff88ff, 0.6);
     sunLight.position.set(100, 300, -100);
     this.scene.add(sunLight);
 
-    // Point lights for neon effect
-    const pointLight1 = new THREE.PointLight(0x00ffff, 0.5, 500);
-    pointLight1.position.set(0, 50, -100);
+    // Point lights for subtle neon accent
+    const pointLight1 = new THREE.PointLight(0x00ffff, 0.4, 1000);
+    pointLight1.position.set(0, 100, -100);
     this.scene.add(pointLight1);
 
-    // Sky Dome
-    const vertexShader = `
-      varying vec3 vWorldPosition;
-      void main() {
-        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-        vWorldPosition = worldPosition.xyz;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `;
+    const pointLight2 = new THREE.PointLight(0xff00ff, 0.3, 800);
+    pointLight2.position.set(100, 200, 100);
+    this.scene.add(pointLight2);
 
-    const fragmentShader = `
-      uniform vec3 topColor;
-      uniform vec3 bottomColor;
-      uniform float offset;
-      uniform float exponent;
-      varying vec3 vWorldPosition;
-      void main() {
-        float h = normalize(vWorldPosition + offset).y;
-        gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
-      }
-    `;
-
-    const uniforms = {
-      topColor: { value: zenithColor.clone() },
-      bottomColor: { value: horizonColor.clone() },
-      offset: { value: 33 },
-      exponent: { value: 0.6 }
-    };
-
-    const skyGeo = new THREE.SphereGeometry(10000, 32, 15);
-    const skyMat = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader,
-      uniforms,
-      side: THREE.BackSide,
-      fog: false
-    });
-
-    this.skyMesh = new THREE.Mesh(skyGeo, skyMat);
-    this.scene.add(this.skyMesh);
-
-    // Add some stars
-    this.createStars();
+    // Space skybox is initialized via initSpaceSkybox() in constructor
+    // Add enhanced stars with glow
+    this.createCyberpunkStars();
   }
 
-  private createStars() {
+  // NOTE: createNebulaSkyDome and createProceduralSky removed - now using SpaceSkybox
+
+  private createCyberpunkStars() {
     const starGeometry = new THREE.BufferGeometry();
-    const starCount = 2000;
+    const starCount = 3000;
     const positions = new Float32Array(starCount * 3);
+    const colors = new Float32Array(starCount * 3);
+    const sizes = new Float32Array(starCount);
     
     for (let i = 0; i < starCount; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(Math.random() * 2 - 1);
-      const radius = 8000 + Math.random() * 1000;
+      const radius = 8000 + Math.random() * 1500;
       
       positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
       positions[i * 3 + 1] = radius * Math.cos(phi);
       positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+      
+      // Mix of bright white, cyan, and magenta stars
+      const colorType = Math.random();
+      if (colorType < 0.5) {
+        // White stars
+        colors[i * 3] = 1.0;
+        colors[i * 3 + 1] = 1.0;
+        colors[i * 3 + 2] = 1.0;
+      } else if (colorType < 0.75) {
+        // Cyan stars
+        colors[i * 3] = 0.0;
+        colors[i * 3 + 1] = 1.0;
+        colors[i * 3 + 2] = 1.0;
+      } else {
+        // Magenta stars
+        colors[i * 3] = 1.0;
+        colors[i * 3 + 1] = 0.0;
+        colors[i * 3 + 2] = 1.0;
+      }
+      
+      sizes[i] = 1 + Math.random() * 3;
     }
     
     starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    starGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    starGeometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
     
     const starMaterial = new THREE.PointsMaterial({
-      color: 0xffffff,
       size: 2,
       sizeAttenuation: true,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.9,
+      vertexColors: true,
+      fog: false
     });
     
     const stars = new THREE.Points(starGeometry, starMaterial);
@@ -1136,6 +1286,27 @@ export class GameEngine {
       detail: {
         missiles: missileInfo,
         cannon: cannonInfo,
+      }
+    }));
+  }
+
+  /**
+   * Dispatch throttle state to ThrottleHUD component
+   */
+  private dispatchThrottleState() {
+    const throttle = this.flightController.throttle;
+    const speed = this.flightController.speed;
+    const energy = this.flightController.energy;
+    const maxEnergy = this.flightController.MAX_ENERGY;
+    
+    window.dispatchEvent(new CustomEvent('throttle-update', {
+      detail: {
+        throttle,           // 0-1 throttle value
+        throttlePercent: Math.round(throttle * 100),  // 0-100%
+        speed: Math.round(speed),
+        energy,
+        maxEnergy,
+        isBoosting: throttle > 0.5,  // Boost range
       }
     }));
   }
@@ -1475,6 +1646,9 @@ export class GameEngine {
       // Dispatch weapons state for HUD
       this.dispatchWeaponsState();
       
+      // Dispatch throttle state for HUD
+      this.dispatchThrottleState();
+      
       // Dispatch enemy state for HUD
       this.dispatchEnemyState();
       
@@ -1528,11 +1702,26 @@ export class GameEngine {
     // Update Sky position
     if (this.skyMesh) {
       this.skyMesh.position.copy(this.flightController.position);
+      // Animate sky shader time for nebula effect
+      const skyMaterial = this.skyMesh.material as THREE.ShaderMaterial;
+      if (skyMaterial.uniforms && skyMaterial.uniforms.time) {
+        skyMaterial.uniforms.time.value += dt;
+      }
     }
     
-    // Phase 15: Update cloud system
-    if (this.cloudSystemInstance) {
-      this.cloudSystemInstance.update(dt, this.flightController.position);
+    // Phase 15: Update nebula system
+    if (this.nebulaSystemInstance) {
+      this.nebulaSystemInstance.update(this.flightController.position, this.elapsedTime);
+    }
+    
+    // Update space skybox (follows camera for seamless sky)
+    if (this.spaceSkybox) {
+      this.spaceSkybox.update(this.elapsedTime, this.flightController.position);
+    }
+    
+    // Update moon mountains (loads chunks as player moves)
+    if (this.moonMountains) {
+      this.moonMountains.update(this.flightController.position);
     }
 
     // Update Camera (skip if cinematic is controlling camera)
@@ -1545,6 +1734,61 @@ export class GameEngine {
 
     // Render
     this.renderer.render(this.scene, this.camera);
+  };
+
+  /**
+   * Save current game state to database if logged in
+   */
+  private saveLiveGameState() {
+    if (!isLoggedIn()) {
+      return; // Not logged in, skip database save
+    }
+
+    try {
+      const currentWave = waveManager.getCurrentWave();
+      const upgrades: Record<string, number> = {};
+      
+      // Collect all purchased upgrades
+      const allUpgradeIds = ['cannon_damage', 'missile_capacity', 'missile_speed', 'missile_tracking',
+        'health_increase', 'armor_upgrade', 'afterburner_efficiency', 'cooling_system',
+        'emergency_repair', 'radar_upgrade'];
+      
+      for (const upgradeId of allUpgradeIds) {
+        const level = upgradeManager.getUpgradeLevel(upgradeId);
+        if (level > 0) {
+          upgrades[upgradeId] = level;
+        }
+      }
+
+      const scoreState = this.scoreManager.getState();
+      
+      const saveData = {
+        waveNumber: currentWave?.id || 1,
+        actNumber: currentWave?.act || 1,
+        gameMode: waveManager.isEndlessMode() ? 'ENDLESS' : 'CAMPAIGN',
+        isPaused: this.isPaused,
+        playerHealth: this.playerHealthManager.getHealth(),
+        playerMaxHealth: this.playerHealthManager.getMaxHealth(),
+        playerPosition: {
+          x: this.flightController.position.x,
+          y: this.flightController.position.y,
+          z: this.flightController.position.z,
+        },
+        currentScore: scoreState.score,
+        currentCombo: scoreState.combo,
+        scrapCurrency: currencyManager.getScrap(),
+        upgradesState: upgrades,
+        enemiesState: [], // Could be populated with enemy positions/states for advanced restoration
+        waveElapsedTime: this.elapsedTime,
+        totalFlightTime: ProgressManager.getProgress().totalFlightTime,
+      };
+
+      saveGameState(saveData).catch((error) => {
+        console.warn('[GAME ENGINE] Failed to save game state:', error);
+      });
+    } catch (error) {
+      console.warn('[GAME ENGINE] Error preparing game save:', error);
+    }
   };
 
   public dispose() {
@@ -1591,8 +1835,8 @@ export class GameEngine {
     if (this.particleTrailSystem) {
       this.particleTrailSystem.dispose();
     }
-    if (this.cloudSystemInstance) {
-      this.cloudSystemInstance.dispose();
+    if (this.nebulaSystemInstance) {
+      this.nebulaSystemInstance.dispose();
     }
     cameraEffects.reset();
     

@@ -1,16 +1,63 @@
 services:
+  postgres:
+    container_name: skyfall-postgres
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-skyfall}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-skyfall-secret-dev}
+      POSTGRES_DB: ${DB_NAME:-skyfall_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - skyfall-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-skyfall}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    container_name: skyfall-backend
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-skyfall}
+      DB_PASSWORD: ${DB_PASSWORD:-skyfall-secret-dev}
+      DB_NAME: ${DB_NAME:-skyfall_db}
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      NODE_ENV: production
+      API_PORT: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - skyfall-network
+    restart: unless-stopped
+
   skyfall-protocol:
     container_name: skyfall-protocol
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
     restart: unless-stopped
+    depends_on:
+      - backend
     networks:
       - proxy
+      - skyfall-network
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"
-      - "traefik.http.routers.skyfall-protocol.rule=Host(`starfall.vectorhost.net`)"
+      - "traefik.http.routers.skyfall-protocol.rule=Host(`skyfall.vectorhost.net`)"
       - "traefik.http.routers.skyfall-protocol.entrypoints=websecure"
       - "traefik.http.routers.skyfall-protocol.tls=true"
       - "traefik.http.routers.skyfall-protocol.tls.certresolver=vpsresolver"
@@ -18,6 +65,11 @@ services:
       - "traefik.http.routers.skyfall-protocol.service=skyfall-protocol-svc"
       - "traefik.http.services.skyfall-protocol-svc.loadbalancer.server.port=80"
 
+volumes:
+  postgres_data:
+
 networks:
   proxy:
     external: true
+  skyfall-network:
+    driver: bridge

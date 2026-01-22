@@ -239,6 +239,10 @@ export class EnemyManager {
           if (this.endlessSpeedMultiplier > 1) {
             enemy.applySpeedMultiplier(this.endlessSpeedMultiplier);
           }
+          
+          // Force wave-spawned enemies into ENGAGEMENT mode immediately
+          // This ensures they actively hunt the player instead of patrolling
+          enemy.forceEngagement();
         }
         
         enemyIndex++;
@@ -268,6 +272,8 @@ export class EnemyManager {
     if (enemy) {
       // Apply reduced stats for minions (they're weaker than normal)
       enemy.applyDifficultyScaling(0.5, 0.5);
+      // Force engagement mode for boss minions
+      enemy.forceEngagement();
       console.log(`[ENEMY MANAGER] Spawned boss minion at ${position.x.toFixed(0)}, ${position.y.toFixed(0)}, ${position.z.toFixed(0)}`);
     }
     return enemy;

@@ -12,19 +12,17 @@ import * as THREE from 'three';
 
 // ============ Constants ============
 
-const BEACON_BASE_DISTANCE = 800;      // meters (Wave 1)
-const BEACON_DISTANCE_SCALE = 150;     // +150m per wave
-const BEACON_ACTIVATION_RADIUS = 100;  // meters to trigger activation
+const BEACON_BASE_DISTANCE = 2000;      // meters (Wave 1) - meaningful travel distance
+const BEACON_DISTANCE_SCALE = 300;      // +300m per wave for escalating journeys
+const BEACON_ACTIVATION_RADIUS = 80;    // meters to trigger activation (slightly tighter)
 
-const BEACON_BASE_TIME = 60;           // seconds (Wave 1)
-const BEACON_TIME_PER_WAVE = 10;       // +10s per wave
+const BEACON_BASE_TIME = 90;            // seconds (Wave 1) - more time for longer distance
+const BEACON_TIME_PER_WAVE = 15;        // +15s per wave
 
-// Visual constants
-const BEAM_HEIGHT = 200;
-const BEAM_RADIUS = 5;
-const BASE_RADIUS = 15;
+// Visual constants - targeting bracket style
+const BEACON_SIZE = 40;                 // Size of the targeting bracket
 const PULSE_SPEED = 2.0;
-const ROTATION_SPEED = 1.0;
+const ROTATION_SPEED = 0.8;
 
 // ============ Types ============
 
@@ -41,10 +39,9 @@ export interface BeaconState {
 
 export class WaypointBeacon {
   private mesh: THREE.Group;
-  private beam: THREE.Mesh;
-  private beamGlow: THREE.Mesh;
-  private base: THREE.Mesh;
-  private rings: THREE.Mesh[] = [];
+  private outerBrackets: THREE.Group;
+  private innerDiamond: THREE.Mesh;
+  private pulseRing: THREE.Mesh;
   private pointLight: THREE.PointLight;
   
   private active: boolean = false;
@@ -63,110 +60,117 @@ export class WaypointBeacon {
     this.mesh = new THREE.Group();
     this.mesh.visible = false;
 
-    // Create beacon visuals
-    this.beam = this.createBeam();
-    this.beamGlow = this.createBeamGlow();
-    this.base = this.createBase();
-    this.createRings();
+    // Create beacon visuals - targeting bracket style (green/yellow color)
+    this.outerBrackets = this.createOuterBrackets();
+    this.innerDiamond = this.createInnerDiamond();
+    this.pulseRing = this.createPulseRing();
     this.pointLight = this.createLight();
 
-    this.mesh.add(this.beam);
-    this.mesh.add(this.beamGlow);
-    this.mesh.add(this.base);
-    this.rings.forEach(ring => this.mesh.add(ring));
+    this.mesh.add(this.outerBrackets);
+    this.mesh.add(this.innerDiamond);
+    this.mesh.add(this.pulseRing);
     this.mesh.add(this.pointLight);
 
-    console.log('[BEACON] Waypoint beacon initialized');
-  }
-
-  // ============ Visual Creation ============
-
-  private createBeam(): THREE.Mesh {
-    const geometry = new THREE.CylinderGeometry(
-      BEAM_RADIUS * 0.3,  // top radius (tapers)
-      BEAM_RADIUS,        // bottom radius
-      BEAM_HEIGHT,
-      8
-    );
-    
-    const material = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
-      transparent: true,
-      opacity: 0.6,
-      side: THREE.DoubleSide,
+    // Disable frustum culling so beacon remains visible even when outside camera frustum
+    this.mesh.frustumCulled = false;
+    this.mesh.traverse((child) => {
+      if (child instanceof THREE.Mesh || child instanceof THREE.Group) {
+        child.frustumCulled = false;
+      }
     });
 
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.y = BEAM_HEIGHT / 2;
-    return mesh;
+    console.log('[BEACON] Waypoint beacon initialized (targeting bracket style)');
   }
 
-  private createBeamGlow(): THREE.Mesh {
-    const geometry = new THREE.CylinderGeometry(
-      BEAM_RADIUS * 0.5,
-      BEAM_RADIUS * 2,
-      BEAM_HEIGHT * 0.8,
-      8
-    );
-    
-    const material = new THREE.MeshBasicMaterial({
-      color: 0x00aaff,
-      transparent: true,
-      opacity: 0.2,
-      side: THREE.DoubleSide,
+  // ============ Visual Creation - Targeting Bracket Style ============
+
+  /**
+   * Create outer corner brackets - similar to targeting reticle but green/yellow
+   */
+  private createOuterBrackets(): THREE.Group {
+    const group = new THREE.Group();
+    const bracketColor = 0x44ff44; // Green color for waypoint (different from cyan targeting)
+    const bracketSize = BEACON_SIZE;
+    const bracketThickness = 2;
+    const bracketLength = bracketSize * 0.35;
+
+    // Create corner brackets using thin box geometries
+    const cornerPositions = [
+      { x: -bracketSize/2, y: bracketSize/2, rotZ: 0 },      // Top-left
+      { x: bracketSize/2, y: bracketSize/2, rotZ: Math.PI/2 },   // Top-right
+      { x: bracketSize/2, y: -bracketSize/2, rotZ: Math.PI },    // Bottom-right
+      { x: -bracketSize/2, y: -bracketSize/2, rotZ: -Math.PI/2 }, // Bottom-left
+    ];
+
+    cornerPositions.forEach(pos => {
+      // Horizontal part of L-bracket
+      const horizGeo = new THREE.BoxGeometry(bracketLength, bracketThickness, bracketThickness);
+      const horizMat = new THREE.MeshBasicMaterial({
+        color: bracketColor,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const horiz = new THREE.Mesh(horizGeo, horizMat);
+      horiz.position.set(pos.x + (pos.x > 0 ? -bracketLength/2 : bracketLength/2), pos.y, 0);
+      group.add(horiz);
+
+      // Vertical part of L-bracket
+      const vertGeo = new THREE.BoxGeometry(bracketThickness, bracketLength, bracketThickness);
+      const vertMat = new THREE.MeshBasicMaterial({
+        color: bracketColor,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const vert = new THREE.Mesh(vertGeo, vertMat);
+      vert.position.set(pos.x, pos.y + (pos.y > 0 ? -bracketLength/2 : bracketLength/2), 0);
+      group.add(vert);
     });
 
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.y = BEAM_HEIGHT * 0.4;
-    return mesh;
+    return group;
   }
 
-  private createBase(): THREE.Mesh {
-    // Flat disc at ground level
-    const geometry = new THREE.CylinderGeometry(
-      BASE_RADIUS,
-      BASE_RADIUS,
-      2,
-      16
-    );
+  /**
+   * Create inner diamond marker - waypoint indicator
+   */
+  private createInnerDiamond(): THREE.Mesh {
+    const diamondSize = BEACON_SIZE * 0.2;
     
+    // Create a diamond shape using a rotated square
+    const geometry = new THREE.PlaneGeometry(diamondSize, diamondSize);
     const material = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
+      color: 0x88ff88, // Lighter green
       transparent: true,
       opacity: 0.8,
+      side: THREE.DoubleSide,
     });
 
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.y = 1;
+    mesh.rotation.z = Math.PI / 4; // Rotate 45 degrees to make diamond
     return mesh;
   }
 
-  private createRings(): void {
-    // Create expanding ring indicators
-    for (let i = 0; i < 3; i++) {
-      const geometry = new THREE.RingGeometry(
-        BASE_RADIUS + i * 20,
-        BASE_RADIUS + i * 20 + 3,
-        32
-      );
-      
-      const material = new THREE.MeshBasicMaterial({
-        color: 0x00ffff,
-        transparent: true,
-        opacity: 0.3 - i * 0.08,
-        side: THREE.DoubleSide,
-      });
+  /**
+   * Create pulsing ring around the beacon
+   */
+  private createPulseRing(): THREE.Mesh {
+    const geometry = new THREE.RingGeometry(
+      BEACON_SIZE * 0.55,
+      BEACON_SIZE * 0.6,
+      32
+    );
+    
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x44ff44,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+    });
 
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.rotation.x = -Math.PI / 2; // Lay flat
-      mesh.position.y = 1;
-      this.rings.push(mesh);
-    }
+    return new THREE.Mesh(geometry, material);
   }
 
   private createLight(): THREE.PointLight {
-    const light = new THREE.PointLight(0x00ffff, 2, 300);
-    light.position.y = BEAM_HEIGHT / 2;
+    const light = new THREE.PointLight(0x44ff44, 1.5, 200);
     return light;
   }
 
@@ -182,6 +186,10 @@ export class WaypointBeacon {
     waveNumber: number,
     timerEnabled: boolean = true
   ): void {
+    // Clear any previous beacon state
+    this.elapsedTime = 0;
+    this.timeRemaining = 0;
+    
     // Store timer state
     this.timerEnabled = timerEnabled;
     
@@ -285,38 +293,48 @@ export class WaypointBeacon {
   }
 
   private updateVisuals(dt: number): void {
-    // Pulse the beam opacity
-    const pulse = 0.4 + Math.sin(this.elapsedTime * PULSE_SPEED) * 0.2;
-    (this.beam.material as THREE.MeshBasicMaterial).opacity = pulse + 0.2;
-    (this.beamGlow.material as THREE.MeshBasicMaterial).opacity = pulse * 0.4;
+    // Pulse the inner diamond opacity
+    const pulse = 0.5 + Math.sin(this.elapsedTime * PULSE_SPEED) * 0.3;
+    (this.innerDiamond.material as THREE.MeshBasicMaterial).opacity = pulse;
 
-    // Rotate the rings
-    this.rings.forEach((ring, i) => {
-      ring.rotation.z += dt * ROTATION_SPEED * (1 + i * 0.2);
-    });
+    // Pulse the ring
+    const ringPulse = 0.3 + Math.sin(this.elapsedTime * PULSE_SPEED * 1.5) * 0.2;
+    (this.pulseRing.material as THREE.MeshBasicMaterial).opacity = ringPulse;
 
-    // Scale rings based on pulse
-    const ringScale = 1 + Math.sin(this.elapsedTime * PULSE_SPEED * 0.5) * 0.1;
-    this.rings.forEach(ring => {
-      ring.scale.set(ringScale, ringScale, 1);
-    });
+    // Rotate the outer brackets slowly
+    this.outerBrackets.rotation.z += dt * ROTATION_SPEED * 0.3;
+    
+    // Rotate the inner diamond
+    this.innerDiamond.rotation.z += dt * ROTATION_SPEED;
 
-    // Urgency: Change color from cyan to orange as time runs out
-    const urgency = 1 - (this.timeRemaining / this.timeLimit);
-    if (urgency > 0.5) {
-      const urgencyFactor = (urgency - 0.5) * 2; // 0 to 1 in the last 50%
-      const r = Math.floor(0 + urgencyFactor * 255);
-      const g = Math.floor(255 - urgencyFactor * 100);
-      const b = Math.floor(255 - urgencyFactor * 255);
-      const color = new THREE.Color(`rgb(${r}, ${g}, ${b})`);
-      
-      (this.beam.material as THREE.MeshBasicMaterial).color = color;
-      (this.beamGlow.material as THREE.MeshBasicMaterial).color = color;
-      (this.base.material as THREE.MeshBasicMaterial).color = color;
-      this.rings.forEach(ring => {
-        (ring.material as THREE.MeshBasicMaterial).color = color;
-      });
-      this.pointLight.color = color;
+    // Scale pulse ring for breathing effect
+    const ringScale = 1 + Math.sin(this.elapsedTime * PULSE_SPEED * 0.8) * 0.15;
+    this.pulseRing.scale.set(ringScale, ringScale, 1);
+
+    // Make beacon face the camera (billboarding) - rotate to face player
+    // The mesh will naturally face the player due to how it's positioned
+
+    // Urgency: Change color from green to orange/red as time runs out (only if timer enabled)
+    if (this.timerEnabled) {
+      const urgency = 1 - (this.timeRemaining / this.timeLimit);
+      if (urgency > 0.5) {
+        const urgencyFactor = (urgency - 0.5) * 2; // 0 to 1 in the last 50%
+        // Transition from green (0x44ff44) to orange/red
+        const r = Math.floor(68 + urgencyFactor * 187);  // 68 -> 255
+        const g = Math.floor(255 - urgencyFactor * 155); // 255 -> 100
+        const b = Math.floor(68 - urgencyFactor * 68);   // 68 -> 0
+        const color = new THREE.Color(`rgb(${r}, ${g}, ${b})`);
+        
+        // Update all materials
+        (this.innerDiamond.material as THREE.MeshBasicMaterial).color = color;
+        (this.pulseRing.material as THREE.MeshBasicMaterial).color = color;
+        this.outerBrackets.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            (child.material as THREE.MeshBasicMaterial).color = color;
+          }
+        });
+        this.pointLight.color = color;
+      }
     }
   }
 
@@ -388,16 +406,22 @@ export class WaypointBeacon {
   // ============ Disposal ============
 
   public dispose(): void {
-    this.beam.geometry.dispose();
-    (this.beam.material as THREE.Material).dispose();
-    this.beamGlow.geometry.dispose();
-    (this.beamGlow.material as THREE.Material).dispose();
-    this.base.geometry.dispose();
-    (this.base.material as THREE.Material).dispose();
-    this.rings.forEach(ring => {
-      ring.geometry.dispose();
-      (ring.material as THREE.Material).dispose();
+    // Dispose outer brackets
+    this.outerBrackets.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        (child.material as THREE.Material).dispose();
+      }
     });
+    
+    // Dispose inner diamond
+    this.innerDiamond.geometry.dispose();
+    (this.innerDiamond.material as THREE.Material).dispose();
+    
+    // Dispose pulse ring
+    this.pulseRing.geometry.dispose();
+    (this.pulseRing.material as THREE.Material).dispose();
+    
     this.mesh.clear();
     console.log('[BEACON] Disposed');
   }

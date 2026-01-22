@@ -15,18 +15,33 @@ import { AircraftConfig, AircraftClass } from '../types/AircraftConfig';
  * Create a mesh for an enemy based on its configuration
  */
 export function createEnemyMesh(config: AircraftConfig): THREE.Group {
+  let group: THREE.Group;
   switch (config.class) {
     case 'scout':
-      return createGripenMesh(config);
+      group = createGripenMesh(config);
+      break;
     case 'fighter':
-      return createRafaleMesh(config);
+      group = createRafaleMesh(config);
+      break;
     case 'heavy':
-      return createJ20Mesh(config);
+      group = createJ20Mesh(config);
+      break;
     case 'elite':
-      return createF22Mesh(config);
+      group = createF22Mesh(config);
+      break;
     default:
-      return createRafaleMesh(config);
+      group = createRafaleMesh(config);
   }
+  
+  // Disable frustum culling so enemies remain visible/updated even when outside camera frustum
+  group.frustumCulled = false;
+  group.traverse((child) => {
+    if (child instanceof THREE.Mesh || child instanceof THREE.Group) {
+      child.frustumCulled = false;
+    }
+  });
+  
+  return group;
 }
 
 /**

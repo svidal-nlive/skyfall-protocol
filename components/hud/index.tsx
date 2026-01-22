@@ -23,6 +23,7 @@ export { ScoreDisplay } from './ScoreDisplay';
 export { TopBar } from './TopBar';
 export { EdgeIndicators } from './EdgeIndicators';
 export { EnemyCompass } from './EnemyCompass';
+export { ThrottleBar } from './ThrottleBar';
 
 // Default export - Complete HUD composition
 import React from 'react';
@@ -34,6 +35,7 @@ import { ScoreDisplay } from './ScoreDisplay';
 import { TopBar } from './TopBar';
 import { EdgeIndicators } from './EdgeIndicators';
 import { EnemyCompass } from './EnemyCompass';
+import { ThrottleBar } from './ThrottleBar';
 
 interface CompleteHUDProps {
   visible?: boolean;
@@ -59,6 +61,9 @@ export const CompleteHUD: React.FC<CompleteHUDProps> = ({ visible = true }) => {
       
       {/* Bottom Left (above health) - Radar */}
       <MiniRadar />
+      
+      {/* Left Center - Throttle indicator */}
+      <ThrottleBar />
       
       {/* Bottom Right - Weapons */}
       <WeaponsStrip />

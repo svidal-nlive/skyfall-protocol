@@ -108,7 +108,7 @@ export class FlightController {
   private smoothedInput = { pitch: 0, roll: 0, yaw: 0 };
 
   // Engine State
-  public throttle: number = 0.5;
+  public throttle: number = 0.3;  // Start at 30% throttle for slower initial velocity
 
   // Energy System
   public energy: number = 100;
@@ -120,7 +120,7 @@ export class FlightController {
   private MIN_SPEED = 15.0;
   private MAX_SPEED = 80.0;
   private BOOST_SPEED = 120.0;
-  private readonly THROTTLE_LERP = 0.8;
+  private readonly THROTTLE_INCREMENT = 0.5;  // Throttle change rate per second
   
   // Turn rate multiplier from aircraft config
   private turnRateMultiplier = 1.0;
@@ -165,7 +165,7 @@ export class FlightController {
     this.position = new THREE.Vector3(0, 100, 0);
     this.quaternion = new THREE.Quaternion();
     this.velocity = new THREE.Vector3(0, 0, -1);
-    this.speed = 30;
+    this.speed = 20;  // Lower initial speed to match 30% throttle
     this.energy = 100;
     
     // Apply aircraft config
@@ -339,8 +339,8 @@ export class FlightController {
   public reset(position: THREE.Vector3) {
     this.position.copy(position);
     this.quaternion.set(0, 0, 0, 1);
-    this.speed = 30;
-    this.throttle = 0.5;
+    this.speed = 20;  // Lower initial speed
+    this.throttle = 0.3;  // Start at 30% throttle
     this.energy = 100;
     this.currentPitchRate = 0;
     this.currentRollRate = 0;
@@ -407,22 +407,28 @@ export class FlightController {
     // Check if evasive maneuver is active
     const isEvading = this.updateBarrelRoll(dt);
 
-    // --- Energy & Throttle ---
-    let targetThrottle = 0.5;
-    
+    // --- Manual Throttle Control ---
+    // Shift increases throttle, B decreases throttle
+    // Throttle stays at the set level until changed
     if (this.input.boost) {
-      if (this.energy > 0) {
+      // Increase throttle incrementally (uses energy for boost range above 0.5)
+      if (this.throttle < 0.5) {
+        // Below 50% - just increase throttle, no energy cost
+        this.throttle = Math.min(0.5, this.throttle + this.THROTTLE_INCREMENT * dt);
+      } else if (this.energy > 0) {
+        // Above 50% - boost range, costs energy
+        this.throttle = Math.min(1.0, this.throttle + this.THROTTLE_INCREMENT * dt);
         this.energy = Math.max(0, this.energy - this.BOOST_DRAIN * dt);
-        targetThrottle = 1.0;
-      } else {
-        targetThrottle = 0.8;
       }
-    } else {
-      this.energy = Math.min(this.MAX_ENERGY, this.energy + this.ENERGY_REGEN * dt);
-      if (this.input.brake) targetThrottle = 0.0;
+    } else if (this.input.brake) {
+      // Decrease throttle incrementally
+      this.throttle = Math.max(0.0, this.throttle - this.THROTTLE_INCREMENT * dt);
     }
-
-    this.throttle = THREE.MathUtils.lerp(this.throttle, targetThrottle, dt * this.THROTTLE_LERP);
+    
+    // Energy regenerates when not boosting (throttle < 0.5 or not pressing boost)
+    if (!this.input.boost || this.throttle <= 0.5) {
+      this.energy = Math.min(this.MAX_ENERGY, this.energy + this.ENERGY_REGEN * dt);
+    }
 
     // --- Speed Physics ---
     let targetSpeed = 0;

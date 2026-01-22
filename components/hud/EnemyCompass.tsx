@@ -89,33 +89,7 @@ export const EnemyCompass: React.FC = () => {
         transition: 'opacity 0.3s ease',
       }}
     >
-      {/* Outer ring */}
-      <svg
-        width={compassSize}
-        height={compassSize}
-        viewBox="0 0 100 100"
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-        }}
-      >
-        {/* Background ring */}
-        <circle
-          cx="50"
-          cy="50"
-          r="45"
-          fill="none"
-          stroke="rgba(255,255,255,0.1)"
-          strokeWidth="2"
-        />
-        
-        {/* Cardinal markers */}
-        <text x="50" y="12" textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="8" fontFamily="var(--hud-font-mono)">N</text>
-        <text x="92" y="53" textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize="8" fontFamily="var(--hud-font-mono)">E</text>
-        <text x="50" y="95" textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize="8" fontFamily="var(--hud-font-mono)">S</text>
-        <text x="8" y="53" textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize="8" fontFamily="var(--hud-font-mono)">W</text>
-      </svg>
+      {/* No background ring - keep compass clean */}
       
       {/* Arrow pointing to enemy */}
       <div

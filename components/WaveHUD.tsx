@@ -11,6 +11,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { WaveState } from '../game/WaveManager';
+import { ProgressManager } from '../game/ProgressManager';
 
 interface WaveHUDData {
   waveNumber: number;
@@ -48,6 +49,7 @@ const WaveHUD: React.FC = () => {
   const [showWaveComplete, setShowWaveComplete] = useState(false);
   const [showWaveStart, setShowWaveStart] = useState(false);
   const [showTimeout, setShowTimeout] = useState(false);
+  const [devModeEnabled, setDevModeEnabled] = useState(ProgressManager.isDevMode());
 
   useEffect(() => {
     // Listen for wave data updates
@@ -84,12 +86,18 @@ const WaveHUD: React.FC = () => {
       setTimeout(() => setShowTimeout(false), 3000);
     };
 
+    // Listen for dev mode changes
+    const handleDevModeChange = (e: CustomEvent) => {
+      setDevModeEnabled(e.detail.enabled);
+    };
+
     window.addEventListener('wave-hud-update', handleWaveUpdate as EventListener);
     window.addEventListener('wave-start', handleWaveStart as EventListener);
     window.addEventListener('wave-complete', handleWaveComplete as EventListener);
     window.addEventListener('beacon-update', handleBeaconUpdate as EventListener);
     window.addEventListener('beacon-despawn', handleBeaconDespawn as EventListener);
     window.addEventListener('beacon-timeout', handleTimeout as EventListener);
+    window.addEventListener('dev-mode-change', handleDevModeChange as EventListener);
 
     return () => {
       window.removeEventListener('wave-hud-update', handleWaveUpdate as EventListener);
@@ -98,6 +106,7 @@ const WaveHUD: React.FC = () => {
       window.removeEventListener('beacon-update', handleBeaconUpdate as EventListener);
       window.removeEventListener('beacon-despawn', handleBeaconDespawn as EventListener);
       window.removeEventListener('beacon-timeout', handleTimeout as EventListener);
+      window.removeEventListener('dev-mode-change', handleDevModeChange as EventListener);
     };
   }, []);
 
@@ -247,6 +256,48 @@ const WaveHUD: React.FC = () => {
           }}>
             "{hudData.waveName}"
           </div>
+        )}
+
+        {/* Dev Mode: Wave Clear Button (Mobile) */}
+        {devModeEnabled && (
+          <button
+            onClick={() => {
+              const canvases = document.querySelectorAll('canvas');
+              if (canvases.length > 0) {
+                const gameCanvas = canvases[0] as any;
+                // Access the GameEngine instance through the canvas element
+                // We'll dispatch an event instead that GameView can handle
+                window.dispatchEvent(new CustomEvent('dev-clear-wave'));
+              }
+            }}
+            style={{
+              marginTop: '12px',
+              padding: '8px 16px',
+              backgroundColor: 'rgba(255, 100, 100, 0.7)',
+              color: '#ffffff',
+              border: '1px solid #ff6464',
+              borderRadius: '4px',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              letterSpacing: '1px',
+              transition: 'all 0.3s ease',
+              boxShadow: '0 0 10px rgba(255, 100, 100, 0.5)',
+              WebkitTouchCallout: 'none',
+              WebkitUserSelect: 'none',
+              pointerEvents: 'auto',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255, 120, 120, 0.9)';
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 15px rgba(255, 100, 100, 0.8)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255, 100, 100, 0.7)';
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 0 10px rgba(255, 100, 100, 0.5)';
+            }}
+          >
+            [DEV] CLEAR WAVE
+          </button>
         )}
       </div>
 

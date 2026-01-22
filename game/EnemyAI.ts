@@ -221,15 +221,34 @@ export class EnemyAI implements TargetableEntity {
     const patrolSpeedMod = 0.5 + this.aircraftConfig.agility * 0.1;
     
     if (!this.assignedPOI) {
-      // No POI, just fly in circles
-      this.patrolAngle += dt * 0.3 * patrolSpeedMod;
-      this.targetPosition.set(
-        Math.cos(this.patrolAngle) * this.patrolRadius,
-        this.patrolHeight + Math.sin(elapsedTime * 0.5) * 10,
-        Math.sin(this.patrolAngle) * this.patrolRadius
-      ).add(this.position);
+      // No POI assigned (wave-spawned enemy) - actively search for player
+      // Instead of circling aimlessly, fly toward the player's last known position
+      const distToPlayer = this.position.distanceTo(playerPosition);
+      
+      // If player is within extended search range, fly toward them
+      // This makes wave-spawned enemies always hunt the player
+      if (distToPlayer < this.aircraftConfig.detectionRange * 3) {
+        // Fly toward player with some offset for variety
+        const searchAngle = elapsedTime * 0.2 + this.patrolAngle;
+        const searchOffset = new THREE.Vector3(
+          Math.cos(searchAngle) * 30,
+          Math.sin(searchAngle * 0.5) * 15,
+          Math.sin(searchAngle) * 30
+        );
+        this.targetPosition.copy(playerPosition).add(searchOffset);
+        this.currentSpeed = this.effectiveSpeed * 0.85; // Faster when hunting
+      } else {
+        // Player is very far, fly in expanding search pattern toward last position
+        this.patrolAngle += dt * 0.3 * patrolSpeedMod;
+        this.targetPosition.set(
+          playerPosition.x + Math.cos(this.patrolAngle) * 100,
+          playerPosition.y + Math.sin(elapsedTime * 0.5) * 20,
+          playerPosition.z + Math.sin(this.patrolAngle) * 100
+        );
+        this.currentSpeed = this.effectiveSpeed * 0.8;
+      }
     } else {
-      // Circle around POI
+      // Circle around POI (legacy POI-based behavior)
       this.patrolAngle += dt * 0.4 * patrolSpeedMod;
       const heightVariation = Math.sin(elapsedTime * 0.3 + this.patrolAngle) * 15;
       
@@ -238,9 +257,8 @@ export class EnemyAI implements TargetableEntity {
         this.assignedPOI.position.y + heightVariation,
         this.assignedPOI.position.z + Math.sin(this.patrolAngle) * this.patrolRadius
       );
+      this.currentSpeed = this.effectiveSpeed * 0.7; // Slower during patrol
     }
-
-    this.currentSpeed = this.effectiveSpeed * 0.7; // Slower during patrol
   }
 
   // ============ ENGAGEMENT STATE ============
@@ -402,7 +420,11 @@ export class EnemyAI implements TargetableEntity {
     switch (this.state) {
       case AIState.PATROL:
         // Engage if player enters detection range
-        if (distToPlayer < this.aircraftConfig.detectionRange) {
+        // For wave-spawned enemies (no POI), use extended detection range to engage sooner
+        const effectiveDetectionRange = this.assignedPOI 
+          ? this.aircraftConfig.detectionRange 
+          : this.aircraftConfig.detectionRange * 2.5; // Wave enemies detect player from further away
+        if (distToPlayer < effectiveDetectionRange) {
           this.changeState(AIState.ENGAGEMENT);
         }
         break;
@@ -412,8 +434,9 @@ export class EnemyAI implements TargetableEntity {
         if (healthPercent < this.aircraftConfig.retreatHealth) {
           this.changeState(AIState.RETREAT);
         }
-        // Return to patrol if player escapes
-        else if (distToPlayer > this.aircraftConfig.detectionRange * 1.5) {
+        // Return to patrol only if player escapes FAR away (increased from 1.5x to 4x detection range)
+        // For wave-spawned enemies (no POI), they should almost never disengage
+        else if (distToPlayer > this.aircraftConfig.detectionRange * (this.assignedPOI ? 2 : 4)) {
           this.changeState(AIState.PATROL);
         }
         break;
@@ -448,6 +471,17 @@ export class EnemyAI implements TargetableEntity {
         // Reset patrol angle for variety
         this.patrolAngle = Math.random() * Math.PI * 2;
         break;
+    }
+  }
+
+  /**
+   * Force enemy into engagement state (used for wave-spawned enemies)
+   * This ensures enemies start combat-ready instead of in patrol mode
+   */
+  public forceEngagement(): void {
+    if (this.state !== AIState.ENGAGEMENT) {
+      console.log(`[AI ${this.id}] Forced into ENGAGEMENT mode`);
+      this.changeState(AIState.ENGAGEMENT);
     }
   }
 

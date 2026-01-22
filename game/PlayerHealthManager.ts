@@ -288,6 +288,17 @@ export class PlayerHealthManager {
   }
 
   /**
+   * Set health to a specific value (used for restoring from save)
+   * @param value - The health value to set
+   */
+  public setHealth(value: number): void {
+    this.health = Math.max(0, Math.min(this.maxHealth, value));
+    this.isAlive = this.health > 0;
+    console.log(`[PLAYER HEALTH] Set to ${this.health}/${this.maxHealth}`);
+    this.dispatchHealthState();
+  }
+
+  /**
    * Enable or disable health regeneration
    */
   public setRegeneration(enabled: boolean, rate: number = 5, delay: number = 5): void {

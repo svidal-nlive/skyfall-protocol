@@ -22,9 +22,17 @@ import BriefingScreen from './components/BriefingScreen';
 import BossHUD from './components/BossHUD';
 import AircraftSelect from './components/AircraftSelect';
 import { storyManager, BriefingData } from './game/StoryManager';
-import { Play, Settings, Zap, Plane, Infinity, Trophy, Warehouse, Bug } from 'lucide-react';
+import { Play, Settings, Zap, Plane, Infinity, Trophy, Warehouse, Bug, LogOut } from 'lucide-react';
+// Auth and persistence
+import { AuthScreen } from './components/AuthScreen';
+import { isLoggedIn, logoutAccount, verifyToken, getAuthToken, loadGameState, saveGameState } from './src/services/api';
 
 const App: React.FC = () => {
+  const [authenticated, setAuthenticated] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [hasSavedGame, setHasSavedGame] = useState(false);
+  const [showContinueButton, setShowContinueButton] = useState(false);
+  
   const [gameState, setGameState] = useState('MENU');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeStyle, setActiveStyle] = useState('ACE');
@@ -41,6 +49,45 @@ const App: React.FC = () => {
   // Dev mode state
   const [devMode, setDevMode] = useState(ProgressManager.isDevMode());
 
+  // Check authentication on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const token = getAuthToken();
+        if (token) {
+          const user = await verifyToken();
+          if (user) {
+            setAuthenticated(true);
+            // Check for saved game
+            const save = await loadGameState();
+            if (save) {
+              setHasSavedGame(true);
+              setShowContinueButton(true);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Auth check failed:', err);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  const handleAuthSuccess = (token: string) => {
+    setAuthenticated(true);
+    setAuthLoading(false);
+  };
+
+  const handleLogout = () => {
+    logoutAccount();
+    setAuthenticated(false);
+    setHasSavedGame(false);
+    setShowContinueButton(false);
+  };
+
   // Toggle dev mode
   const toggleDevMode = () => {
     const newState = ProgressManager.toggleDevMode();
@@ -48,8 +95,22 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    const handleStateChange = (e: CustomEvent) => {
-      setGameState(e.detail.state);
+    const handleStateChange = async (e: CustomEvent) => {
+      const newState = e.detail.state;
+      setGameState(newState);
+      
+      // When returning to menu, re-check for saved games
+      if (newState === 'MENU' && isLoggedIn()) {
+        try {
+          const save = await loadGameState();
+          setHasSavedGame(!!save);
+          setShowContinueButton(!!save);
+        } catch (error) {
+          console.error('Error checking for saved games:', error);
+          setHasSavedGame(false);
+          setShowContinueButton(false);
+        }
+      }
     };
     
     // Listen for shop open/close events
@@ -115,6 +176,7 @@ const App: React.FC = () => {
   const startCampaign = () => {
     setModeSelectOpen(false);
     setIsEndlessMode(false);
+    setShowContinueButton(false);
     // Show briefing for Wave 1 before starting
     const briefing = storyManager.getBriefing(1);
     if (briefing) {
@@ -122,6 +184,23 @@ const App: React.FC = () => {
       setBriefingOpen(true);
     } else {
       window.dispatchEvent(new CustomEvent('game-action', { detail: { action: 'start', mode: 'campaign' } }));
+    }
+  };
+
+  // Continue from saved game
+  const continueGame = async () => {
+    try {
+      const save = await loadGameState();
+      if (save) {
+        // Restore game state
+        setShowContinueButton(false);
+        window.dispatchEvent(new CustomEvent('game-restore', {
+          detail: save
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to load saved game:', err);
+      setHasSavedGame(false);
     }
   };
 
@@ -177,8 +256,29 @@ const App: React.FC = () => {
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-black">
-      {/* 3D Game Canvas */}
-      <GameView />
+      {/* Show auth screen if not authenticated */}
+      {!authenticated && !authLoading && (
+        <AuthScreen onAuthSuccess={handleAuthSuccess} />
+      )}
+
+      {/* Show loading while checking auth */}
+      {authLoading && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-cyan-400 mb-4">SKYFALL PROTOCOL</h1>
+            <div className="inline-block">
+              <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+            <p className="text-cyan-300 mt-4 text-sm">Initializing...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Game content - only show if authenticated */}
+      {authenticated && (
+        <>
+          {/* 3D Game Canvas */}
+          <GameView />
       
       {/* Phase 15: Screen Effects Overlay (hit flash, vignette) */}
       <ScreenEffects />
@@ -282,17 +382,30 @@ const App: React.FC = () => {
 
       {/* Menu Overlay - Hide when mode select or other screens are open */}
       {gameState === 'MENU' && !modeSelectOpen && !leaderboardOpen && !hangarOpen && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center z-50 pointer-events-none">
-          <div className="pointer-events-auto text-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center z-50 pointer-events-none overflow-y-auto py-4">
+          <div className="pointer-events-auto text-center px-4">
             {/* Title */}
-            <div className="mb-8">
-              <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-cyan-400 tracking-tight drop-shadow-[0_0_30px_rgba(34,211,238,0.5)]">
+            <div className="mb-4 sm:mb-8">
+              <h1 className="text-4xl sm:text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-cyan-400 tracking-tight drop-shadow-[0_0_30px_rgba(34,211,238,0.5)]">
                 DEFENDER
               </h1>
-              <p className="text-cyan-300/60 tracking-[0.3em] text-sm mt-2">
+              <p className="text-cyan-300/60 tracking-[0.2em] sm:tracking-[0.3em] text-xs sm:text-sm mt-2">
                 VOXEL ACE FLIGHT SIM
               </p>
             </div>
+
+            {/* Continue Button (if saved game exists) */}
+            {showContinueButton && hasSavedGame && (
+              <button
+                onClick={continueGame}
+                className="group relative px-10 py-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-lg font-bold text-white tracking-wider transition-all duration-300 hover:scale-105 hover:shadow-[0_0_40px_rgba(34,211,238,0.6)] active:scale-95 mb-3"
+              >
+                <div className="flex items-center gap-3">
+                  <Play className="w-5 h-5" />
+                  <span>CONTINUE</span>
+                </div>
+              </button>
+            )}
 
             {/* Start Button */}
             <button
@@ -306,35 +419,44 @@ const App: React.FC = () => {
             </button>
 
             {/* Secondary Buttons */}
-            <div className="flex items-center justify-center gap-4 mt-4">
+            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 mt-4 max-w-[300px] sm:max-w-none mx-auto">
               {/* Hangar Button */}
               <button
                 onClick={() => setHangarOpen(true)}
-                className="px-6 py-2 text-amber-400/80 hover:text-amber-300 transition-colors flex items-center gap-2"
+                className="px-4 sm:px-6 py-2 text-amber-400/80 hover:text-amber-300 transition-colors flex items-center gap-1 sm:gap-2"
               >
                 <Warehouse className="w-4 h-4" />
-                <span className="text-sm tracking-wider">HANGAR</span>
+                <span className="text-xs sm:text-sm tracking-wider">HANGAR</span>
               </button>
 
               {/* Settings Button */}
               <button
                 onClick={() => setSettingsOpen(true)}
-                className="px-6 py-2 text-cyan-400/80 hover:text-cyan-300 transition-colors flex items-center gap-2"
+                className="px-4 sm:px-6 py-2 text-cyan-400/80 hover:text-cyan-300 transition-colors flex items-center gap-1 sm:gap-2"
               >
                 <Settings className="w-4 h-4" />
-                <span className="text-sm tracking-wider">CONFIG</span>
+                <span className="text-xs sm:text-sm tracking-wider">CONFIG</span>
               </button>
 
               {/* Leaderboard Button (Phase 16) */}
               {ProgressManager.isEndlessUnlocked() && (
                 <button
                   onClick={() => setLeaderboardOpen(true)}
-                  className="px-6 py-2 text-purple-400/80 hover:text-purple-300 transition-colors flex items-center gap-2"
+                  className="px-4 sm:px-6 py-2 text-purple-400/80 hover:text-purple-300 transition-colors flex items-center gap-1 sm:gap-2"
                 >
                   <Trophy className="w-4 h-4" />
-                  <span className="text-sm tracking-wider">LEADERBOARD</span>
+                  <span className="text-xs sm:text-sm tracking-wider">LEADERBOARD</span>
                 </button>
               )}
+
+              {/* Logout Button */}
+              <button
+                onClick={handleLogout}
+                className="px-4 sm:px-6 py-2 text-red-400/80 hover:text-red-300 transition-colors flex items-center gap-1 sm:gap-2"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="text-xs sm:text-sm tracking-wider">LOGOUT</span>
+              </button>
             </div>
 
             {/* Dev Mode Toggle */}
@@ -429,6 +551,8 @@ const App: React.FC = () => {
             </button>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

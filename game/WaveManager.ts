@@ -509,7 +509,7 @@ export class WaveManager {
   /**
    * Advance to the next wave
    */
-  private advanceToNextWave() {
+  public advanceToNextWave() {
     this.currentWaveIndex++;
 
     if (this.currentWaveIndex >= WAVE_DEFINITIONS.length) {
@@ -801,6 +801,31 @@ export class WaveManager {
     this.timerEnabled = false;  // Reset timer state
     this.endlessMode = false;
     this.endlessCurrentWave = null;
+  }
+
+  /**
+   * Restore wave manager state from a saved game
+   * @param waveNumber The wave number to restore to (1-indexed)
+   * @param gameMode The game mode (CAMPAIGN or ENDLESS)
+   */
+  public restoreFromSave(waveNumber: number, gameMode: string) {
+    // Set the wave index (waveNumber is 1-indexed, index is 0-indexed)
+    this.currentWaveIndex = Math.max(0, waveNumber - 1);
+    
+    // Set mode
+    this.endlessMode = gameMode === 'ENDLESS';
+    if (this.endlessMode) {
+      this.endlessWaveNumber = waveNumber;
+    }
+    
+    // Reset state for resuming - timer disabled for free flight to beacon
+    this.state = WaveState.PRE_GAME;
+    this.stateStartTime = 0;
+    this.enemiesRemaining = 0;
+    this.totalEnemiesInWave = 0;
+    this.timerEnabled = false;
+    
+    console.log(`[WAVE MANAGER] Restored to Wave ${waveNumber} (${gameMode} mode)`);
   }
 
   // ============ HUD Data ============

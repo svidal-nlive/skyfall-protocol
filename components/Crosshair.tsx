@@ -18,17 +18,30 @@ interface TargetingState {
 
 export const Crosshair: React.FC = () => {
   const [targetingState, setTargetingState] = useState<TargetingState | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
     const handleTargetingUpdate = (e: CustomEvent) => {
       setTargetingState(e.detail);
     };
 
+    const handlePause = (e: CustomEvent) => {
+      setIsPaused(e.detail.paused);
+    };
+
     window.addEventListener('targeting-update', handleTargetingUpdate as EventListener);
+    window.addEventListener('game-pause', handlePause as EventListener);
+    
     return () => {
       window.removeEventListener('targeting-update', handleTargetingUpdate as EventListener);
+      window.removeEventListener('game-pause', handlePause as EventListener);
     };
   }, []);
+
+  // Hide crosshair when game is paused
+  if (isPaused) {
+    return null;
+  }
 
   return (
     <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center">
@@ -43,11 +56,8 @@ export const Crosshair: React.FC = () => {
           <div className="absolute bottom-0 left-0 w-4 h-4 border-l-2 border-b-2 border-cyan-400/70" />
           <div className="absolute bottom-0 right-0 w-4 h-4 border-r-2 border-b-2 border-cyan-400/70" />
           
-          {/* Inner circle */}
-          <div className="w-8 h-8 border border-cyan-400/50 rounded-full flex items-center justify-center">
-            {/* Center pip */}
-            <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full shadow-[0_0_8px_rgba(34,211,238,0.9)]" />
-          </div>
+          {/* Center pip only - clean minimal design */}
+          <div className="w-1.5 h-1.5 bg-cyan-400 rounded-full shadow-[0_0_8px_rgba(34,211,238,0.9)]" />
           
           {/* Horizontal tick marks */}
           <div className="absolute left-6 top-1/2 -translate-y-1/2 w-2 h-0.5 bg-cyan-400/60" />

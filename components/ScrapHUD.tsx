@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { CurrencyState, ScrapEarnedEvent } from '../game/CurrencyManager';
+import { currencyManager, CurrencyState, ScrapEarnedEvent } from '../game/CurrencyManager';
 
 interface ScrapPopup {
   id: number;
@@ -18,7 +18,8 @@ interface ScrapPopup {
 }
 
 export const ScrapHUD: React.FC = () => {
-  const [scrap, setScrap] = useState(0);
+  // Initialize with current scrap value from currency manager
+  const [scrap, setScrap] = useState(() => currencyManager.getScrap());
   const [popups, setPopups] = useState<ScrapPopup[]>([]);
   const popupIdRef = useRef(0);
 
